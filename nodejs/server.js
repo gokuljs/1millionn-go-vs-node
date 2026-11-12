@@ -1,6 +1,7 @@
 'use strict';
 
 const Fastify = require('fastify');
+const PAYLOAD = Buffer.alloc(1024, 0x78);
 
 function buildServer() {
   const app = Fastify({ logger: false });
@@ -9,6 +10,16 @@ function buildServer() {
   app.get('/api/ping', async (_request, reply) => {
     return reply.type('text/plain').send('pong');
   });
+  app.get('/api/json', async () => ({ message: 'ok' }));
+  app.get('/api/payload', async (_request, reply) => {
+    return reply.type('application/octet-stream').send(PAYLOAD);
+  });
+  app.post('/api/echo', {
+    bodyLimit: 64 * 1024,
+    schema: {
+      body: { type: 'object', additionalProperties: true },
+    },
+  }, async (request) => request.body);
 
   return app;
 }
