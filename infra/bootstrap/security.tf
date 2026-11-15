@@ -7,3 +7,21 @@ resource "aws_security_group" "app" {
     Name = "1million-app"
   }
 }
+
+resource "aws_vpc_security_group_ingress_rule" "api" {
+  security_group_id = aws_security_group.app.id
+  description       = "API access from the testing IP"
+  cidr_ipv4         = var.api_client_cidr
+  ip_protocol       = "tcp"
+  from_port         = 3000
+  to_port           = 3000
+}
+
+resource "aws_vpc_security_group_egress_rule" "https" {
+  security_group_id = aws_security_group.app.id
+  description       = "HTTPS downloads and AWS service access"
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+}
