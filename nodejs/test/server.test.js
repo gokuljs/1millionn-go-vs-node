@@ -5,7 +5,7 @@ const test = require('node:test');
 const { buildServer } = require('../server');
 
 test('GET /healthz reports readiness', async (t) => {
-  const app = buildServer();
+  const app = buildServer({ logLevel: 'silent' });
   t.after(() => app.close());
 
   const response = await app.inject({ method: 'GET', url: '/healthz' });
@@ -14,7 +14,7 @@ test('GET /healthz reports readiness', async (t) => {
 });
 
 test('GET /api/ping returns a plain-text baseline', async (t) => {
-  const app = buildServer();
+  const app = buildServer({ logLevel: 'silent' });
   t.after(() => app.close());
 
   const response = await app.inject({ method: 'GET', url: '/api/ping' });
@@ -24,7 +24,7 @@ test('GET /api/ping returns a plain-text baseline', async (t) => {
 });
 
 test('GET /api/json returns fixed JSON', async (t) => {
-  const app = buildServer();
+  const app = buildServer({ logLevel: 'silent' });
   t.after(() => app.close());
 
   const response = await app.inject({ method: 'GET', url: '/api/json' });
@@ -34,7 +34,7 @@ test('GET /api/json returns fixed JSON', async (t) => {
 });
 
 test('GET /api/payload returns exactly 1 KiB of fixed bytes', async (t) => {
-  const app = buildServer();
+  const app = buildServer({ logLevel: 'silent' });
   t.after(() => app.close());
 
   const response = await app.inject({ method: 'GET', url: '/api/payload' });
@@ -45,7 +45,7 @@ test('GET /api/payload returns exactly 1 KiB of fixed bytes', async (t) => {
 });
 
 test('POST /api/echo returns the submitted JSON object', async (t) => {
-  const app = buildServer();
+  const app = buildServer({ logLevel: 'silent' });
   t.after(() => app.close());
   const body = { message: 'hello', count: 2 };
 
@@ -60,7 +60,7 @@ test('POST /api/echo returns the submitted JSON object', async (t) => {
 });
 
 test('POST /api/echo rejects non-object JSON', async (t) => {
-  const app = buildServer();
+  const app = buildServer({ logLevel: 'silent' });
   t.after(() => app.close());
 
   const response = await app.inject({
@@ -73,7 +73,7 @@ test('POST /api/echo rejects non-object JSON', async (t) => {
 });
 
 test('POST /api/echo limits request bodies to 64 KiB', async (t) => {
-  const app = buildServer();
+  const app = buildServer({ logLevel: 'silent' });
   t.after(() => app.close());
 
   const response = await app.inject({
