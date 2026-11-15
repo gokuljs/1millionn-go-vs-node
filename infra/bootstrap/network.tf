@@ -26,7 +26,7 @@ resource "aws_internet_gateway" "lab" {
   }
 }
 
-resource "aws_route_table" "public" {
+resource "aws_route_table" "app_routes" {
   vpc_id = aws_vpc.lab.id
 
   route {
@@ -35,11 +35,11 @@ resource "aws_route_table" "public" {
   }
 
   tags = {
-    Name = "1million-public-routes"
+    Name = "1million-app-routes"
   }
 }
 
 resource "aws_route_table_association" "app" {
   subnet_id      = aws_subnet.app.id
-  route_table_id = aws_route_table.public.id
+  route_table_id = aws_route_table.app_routes.id
 }
