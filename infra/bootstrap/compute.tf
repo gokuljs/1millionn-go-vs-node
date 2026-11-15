@@ -8,7 +8,7 @@ resource "aws_instance" "app" {
   instance_type               = "t3.micro"
   subnet_id                   = aws_subnet.app.id
   associate_public_ip_address = true
-
+  vpc_security_group_ids = [aws_security_group.app.id]
   root_block_device {
     volume_type = "gp3"
     volume_size = 20
