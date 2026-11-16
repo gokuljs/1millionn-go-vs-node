@@ -14,7 +14,7 @@ resource "aws_instance" "app" {
   user_data = templatefile("${path.module}/templates/startup.sh.tftpl", {
     aws_region     = var.aws_region
     repository_url = aws_ecr_repository.app.repository_url
-    image_digest   = var.app_image_digest
+    image_digest   = data.aws_ssm_parameter.app_image_digest.value
     nginx_config   = file("${path.module}/templates/nginx.conf")
   })
   user_data_replace_on_change = true

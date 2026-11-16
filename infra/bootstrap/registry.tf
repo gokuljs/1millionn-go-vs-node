@@ -11,3 +11,15 @@ resource "aws_ecr_repository" "app" {
     scan_on_push = true
   }
 }
+
+data "aws_ssm_parameter" "app_image_digest" {
+  name            = "/1million/lab/app-image-digest"
+  with_decryption = false
+
+  lifecycle {
+    postcondition {
+      condition     = can(regex("^sha256:[0-9a-f]{64}$", self.value))
+      error_message = "The image digest parameter must contain sha256: followed by 64 lowercase hexadecimal characters."
+    }
+  }
+}
