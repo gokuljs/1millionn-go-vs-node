@@ -1,10 +1,53 @@
 'use strict';
 
 const Fastify = require('fastify');
+const { randomUUID } = require('node:crypto');
 const PAYLOAD = Buffer.alloc(1024, 0x78);
+const LOG_LEVELS = new Set(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']);
 
-function buildServer() {
-  const app = Fastify({ logger: false });
+function errorMetadata(error) {
+  return { type: error?.name, code: error?.code };
+}
+
+function buildServer({ logLevel = process.env.LOG_LEVEL || 'info', logStream } = {}) {
+  if (!LOG_LEVELS.has(logLevel)) {
+    throw new Error(`LOG_LEVEL must be one of: ${[...LOG_LEVELS].join(', ')}`);
+  }
+
+  const app = Fastify({
+    logger: {
+      level: logLevel,
+      stream: logStream,
+      // Parser errors can contain raw HTTP packets, messages, and stacks.
+      serializers: { err: errorMetadata },
+    },
+    // Default logs can include raw URLs and error messages containing input.
+    logController: new Fastify.LogController({ disableRequestLogging: true }),
+    requestIdHeader: false,
+    genReqId: () => randomUUID(),
+  });
+
+  app.decorateRequest('logError', null);
+
+  app.addHook('onRequest', async (request, reply) => {
+    reply.header('x-request-id', request.id);
+  });
+
+  app.addHook('onError', async (request, _reply, error) => {
+    request.logError = errorMetadata(error);
+  });
+
+  app.addHook('onResponse', async (request, reply) => {
+    const level = reply.statusCode >= 500 ? 'error' : reply.statusCode >= 400 ? 'warn' : 'info';
+    request.log[level]({
+      method: request.method,
+      // Use the registered route template, excluding query values and path parameters.
+      route: request.routeOptions.url ?? null,
+      statusCode: reply.statusCode,
+      responseTime: reply.elapsedTime,
+      ...(request.logError && { error: request.logError }),
+    }, 'request completed');
+  });
 
   app.get('/healthz', async () => ({ status: 'ok' }));
   app.get('/api/ping', async (_request, reply) => {
@@ -33,8 +76,7 @@ async function start() {
 
   const app = buildServer();
   try {
-    const address = await app.listen({ host, port });
-    console.log(`Listening on ${address}`);
+    await app.listen({ host, port });
   } catch (error) {
     await app.close();
     throw error;

@@ -1,0 +1,128 @@
+#!/bin/bash
+set -euo pipefail
+
+# cloud-init runs this as root on the EC2 machine, not on your laptop.
+exec > >(tee -a /var/log/nodejs-bootstrap.log) 2>&1
+trap 'echo "EC2 startup failed at line $LINENO"; systemctl stop nginx || true' ERR
+
+AWS_REGION='${aws_region}'
+ECR_REPOSITORY='${repository_url}'
+IMAGE_DIGEST='${image_digest}'
+APP_IMAGE="$ECR_REPOSITORY@$IMAGE_DIGEST"
+ECR_REGISTRY=$(printf '%s' "$ECR_REPOSITORY" | cut -d/ -f1)
+
+# Retry transient package, network, and IAM-propagation failures.
+retry() {
+  local attempt
+  for ((attempt = 1; attempt <= 12; attempt++)); do
+    if "$@"; then
+      return 0
+    fi
+    echo "Attempt $attempt of 12 failed."
+    if [ "$attempt" -lt 12 ]; then
+      sleep 5
+    fi
+  done
+  return 1
+}
+
+echo "Installing Docker, Nginx, and the AWS CLI."
+retry dnf install -y docker nginx awscli-2
+systemctl enable --now docker
+retry docker info
+
+# The AWS CLI obtains temporary credentials from the instance's IAM role.
+# Never enable shell tracing here: the password travels directly over stdin.
+ecr_login() {
+  aws ecr get-login-password --region "$AWS_REGION" \
+    --cli-connect-timeout 5 --cli-read-timeout 15 |
+    docker login --username AWS --password-stdin "$ECR_REGISTRY"
+}
+
+retry ecr_login
+retry docker pull --platform linux/amd64 "$APP_IMAGE"
+docker logout "$ECR_REGISTRY"
+
+if [ "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$APP_IMAGE")" != "linux/amd64" ]; then
+  echo "The application image must be built for linux/amd64."
+  exit 1
+fi
+
+# Makes rerunning this script safe for this instance's named application.
+if docker container inspect node-api >/dev/null 2>&1; then
+  docker rm -f node-api
+fi
+
+echo "Starting Node.js on the host's loopback interface."
+docker run -d \
+  --name node-api \
+  --restart unless-stopped \
+  --publish 127.0.0.1:3000:3000 \
+  --env NODE_ENV=production \
+  --env HOST=0.0.0.0 \
+  --env PORT=3000 \
+  --env LOG_LEVEL=info \
+  --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid,nodev,size=32m \
+  --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  --pids-limit 128 \
+  --memory 512m \
+  --memory-swap 512m \
+  --log-driver local \
+  --log-opt max-size=10m \
+  --log-opt max-file=3 \
+  "$APP_IMAGE"
+
+# Used at first launch and before Nginx starts after an EC2 reboot.
+install -d -m 755 /usr/local/bin /etc/systemd/system/nginx.service.d
+cat > /usr/local/bin/wait-for-node-api <<'WAIT_SCRIPT'
+#!/bin/bash
+set -euo pipefail
+for ((attempt = 1; attempt <= 60; attempt++)); do
+  if curl --fail --silent --show-error --max-time 2 \
+    http://127.0.0.1:3000/healthz >/dev/null; then
+    exit 0
+  fi
+  sleep 2
+done
+echo "Node.js did not become ready."
+exit 1
+WAIT_SCRIPT
+chmod 755 /usr/local/bin/wait-for-node-api
+
+cat > /etc/systemd/system/nginx.service.d/node-api.conf <<'SYSTEMD'
+[Unit]
+Requires=docker.service
+After=docker.service
+
+[Service]
+ExecStartPre=/usr/local/bin/wait-for-node-api
+TimeoutStartSec=300
+SYSTEMD
+
+echo "Configuring Nginx to proxy port 80 to Node.js."
+cat > /etc/nginx/nginx.conf <<'NGINX_CONFIG'
+${nginx_config}
+NGINX_CONFIG
+
+# Preserve SELinux enforcement if it has been enabled on the machine.
+if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce)" = "Enforcing" ]; then
+  retry dnf install -y policycoreutils
+  setsebool -P httpd_can_network_connect 1
+fi
+
+/usr/local/bin/wait-for-node-api
+nginx -t
+systemctl daemon-reload
+systemctl enable nginx
+systemctl restart nginx
+
+PING_RESPONSE=$(curl --fail --silent --show-error --max-time 5 http://127.0.0.1/api/ping)
+if [ "$PING_RESPONSE" != "pong" ]; then
+  echo "The API check through Nginx did not return pong."
+  systemctl stop nginx
+  exit 1
+fi
+
+echo "Startup complete: Nginx on port 80 forwards to Node.js on localhost:3000."
