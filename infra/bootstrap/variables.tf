@@ -26,3 +26,9 @@ variable "api_client_cidr" {
     error_message = "Provide one IPv4 address followed by /32."
   }
 }
+
+
+resource "aws_iam_instance_profile" "app" {
+  name = "1million-nodejs-ec2-lab"
+  role = aws_iam_role.app.name
+}
