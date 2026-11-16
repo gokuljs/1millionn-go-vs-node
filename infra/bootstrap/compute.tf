@@ -28,5 +28,6 @@ resource "aws_instance" "app" {
   depends_on = [
     aws_route_table_association.app,
     aws_vpc_security_group_egress_rule.https,
+    aws_iam_role_policy.app_ecr_pull,
   ]
 }
